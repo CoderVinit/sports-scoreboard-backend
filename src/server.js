@@ -50,7 +50,7 @@ const startServer = async () => {
     console.log('✓ Database connection established successfully');
 
     // Sync models (use { force: true } only in development to recreate tables)
-    await sequelize.sync({ alter: true });
+    // await sequelize.sync({ alter: false });
     console.log('✓ Database models synchronized');
 
     // Start server

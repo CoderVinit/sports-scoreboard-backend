@@ -20,7 +20,7 @@ Match.belongsTo(Team, { foreignKey: 'team2_id', as: 'team2' });
 Match.belongsTo(Team, { foreignKey: 'toss_winner_id', as: 'tossWinner' });
 Match.belongsTo(Team, { foreignKey: 'batting_first_id', as: 'battingFirst' });
 Match.belongsTo(Team, { foreignKey: 'winner_id', as: 'winner' });
-Match.belongsTo(Player, { foreignKey: 'player_of_match', as: 'playerOfMatch' });
+Match.belongsTo(Player, { foreignKey: 'playerOfMatchId', as: 'playerOfMatch' });
 
 // Innings relationships
 Match.hasMany(Innings, { foreignKey: 'match_id', as: 'innings' });

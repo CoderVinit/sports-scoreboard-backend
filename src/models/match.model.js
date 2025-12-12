@@ -105,7 +105,7 @@ const Match = sequelize.define('Match', {
     type: DataTypes.STRING(100),
     allowNull: true
   },
-  playerOfMatch: {
+  playerOfMatchId: {
     type: DataTypes.INTEGER,
     allowNull: true,
     field: 'player_of_match'

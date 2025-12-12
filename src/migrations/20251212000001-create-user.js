@@ -24,13 +24,33 @@ module.exports = {
         type: Sequelize.STRING(255),
         allowNull: false
       },
+      first_name: {
+        type: Sequelize.STRING(50),
+        allowNull: true
+      },
+      last_name: {
+        type: Sequelize.STRING(50),
+        allowNull: true
+      },
       role: {
-        type: Sequelize.ENUM('admin', 'user', 'moderator'),
+        type: Sequelize.ENUM('admin', 'user', 'moderator', 'scorekeeper'),
         defaultValue: 'user'
+      },
+      phone_number: {
+        type: Sequelize.STRING(20),
+        allowNull: true
+      },
+      avatar: {
+        type: Sequelize.STRING(255),
+        allowNull: true
       },
       is_active: {
         type: Sequelize.BOOLEAN,
         defaultValue: true
+      },
+      last_login: {
+        type: Sequelize.DATE,
+        allowNull: true
       },
       created_at: {
         allowNull: false,
