@@ -51,6 +51,7 @@ Partnership.belongsTo(Match, { foreignKey: 'match_id', as: 'match' });
 Partnership.belongsTo(Innings, { foreignKey: 'innings_id', as: 'innings' });
 Partnership.belongsTo(Player, { foreignKey: 'batsman1_id', as: 'batsman1' });
 Partnership.belongsTo(Player, { foreignKey: 'batsman2_id', as: 'batsman2' });
+Match.hasMany(Partnership, { foreignKey: 'match_id', as: 'partnerships' });
 Innings.hasMany(Partnership, { foreignKey: 'innings_id', as: 'partnerships' });
 
 const models = {

@@ -4,9 +4,34 @@ const { Match, Team, Player, Innings, Ball, PlayerMatchStats, Partnership } = re
 exports.createMatch = async (req, res) => {
   try {
     const match = await Match.create(req.body);
+    
+    // Automatically create first innings based on toss result
+    const firstInnings = await Innings.create({
+      matchId: match.id,
+      battingTeamId: match.battingFirstId,
+      bowlingTeamId: match.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
+      inningsNumber: 1,
+      status: 'in_progress'
+    });
+
+    // Update match with current innings
+    await match.update({
+      currentInnings: 1,
+      status: 'live'
+    });
+
+    // Fetch match with innings
+    const matchWithInnings = await Match.findByPk(match.id, {
+      include: [
+        { model: Team, as: 'team1' },
+        { model: Team, as: 'team2' },
+        { model: Innings, as: 'innings' }
+      ]
+    });
+
     res.status(201).json({
       success: true,
-      data: match
+      data: matchWithInnings
     });
   } catch (error) {
     res.status(400).json({
@@ -38,7 +63,8 @@ exports.getMatchDetails = async (req, res) => {
               as: 'balls',
               include: [
                 { model: Player, as: 'batsman' },
-                { model: Player, as: 'bowler' }
+                { model: Player, as: 'bowler' },
+                {model: Player, as: 'fielder', attributes: ['name'] }
               ]
             }
           ]
@@ -207,3 +233,276 @@ exports.deleteMatch = async (req, res) => {
     });
   }
 };
+
+// Get match statistics
+exports.getMatchStatistics = async (req, res) => {
+  try {
+    const match = await Match.findByPk(req.params.id, {
+      include: [
+        { model: Team, as: 'team1', attributes: ['id', 'name'] },
+        { model: Team, as: 'team2', attributes: ['id', 'name'] },
+        {
+          model: Innings,
+          as: 'innings'
+        },
+        {
+          model: PlayerMatchStats,
+          as: 'playerStats',
+          include: [
+            { 
+              model: Player, 
+              as: 'player',
+              attributes: ['id', 'name', 'role', 'teamId']
+            },
+            {
+              model: Team,
+              as: 'team',
+              attributes: ['id', 'name']
+            }
+          ]
+        },
+        {
+          model: Partnership,
+          as: 'partnerships',
+          include: [
+            { model: Player, as: 'batsman1', attributes: ['id', 'name'] },
+            { model: Player, as: 'batsman2', attributes: ['id', 'name'] }
+          ]
+        }
+      ]
+    });
+
+    console.log(match);
+
+    if (!match) {
+      return res.status(404).json({
+        success: false,
+        message: 'Match not found'
+      });
+    }
+
+    // Get current innings to determine batting and bowling teams
+    const currentInnings = match.innings?.[match.currentInnings - 1];
+    const battingTeamId = currentInnings?.battingTeamId || match.battingFirstId;
+    const bowlingTeamId = currentInnings?.bowlingTeamId || (battingTeamId === match.team1Id ? match.team2Id : match.team1Id);
+
+    // Fetch dismissal details for each player from Ball table
+    const battingStatsWithDismissal = await Promise.all(
+      match.playerStats
+        .filter(s => s.teamId === battingTeamId)
+        .map(async (stat) => {
+          if (stat.isOut) {
+            // Find the ball where this player got dismissed
+            const dismissalBall = await Ball.findOne({
+              where: {
+                matchId: req.params.id,
+                inningsId: stat.inningsId,
+                isWicket: true,
+                batsmanId: stat.playerId
+              },
+              include: [
+                { model: Player, as: 'bowler', attributes: ['id', 'name'] },
+                { model: Player, as: 'fielder', attributes: ['id', 'name'] }
+              ]
+            });
+
+            return {
+              ...stat.toJSON(),
+              dismissalBowler: dismissalBall?.bowler,
+              dismissalFielder: dismissalBall?.fielder
+            };
+          }
+          return stat.toJSON();
+        })
+    );
+
+    // Calculate Fall of Wickets from PlayerMatchStats
+    const fallOfWickets = match.playerStats
+      .filter(stat => stat.teamId === battingTeamId && stat.isOut)
+      .map((stat, index) => {
+        // Get the innings at the time of dismissal
+        const inningsAtDismissal = match.innings.find(inn => inn.id === stat.inningsId);
+        
+        return {
+          wicket: index + 1,
+          runs: stat.runsScored,
+          player: stat.player,
+          playerId: stat.playerId,
+          playerName: stat.player?.name,
+          // Calculate score when this wicket fell (approximate from total team runs)
+          teamScore: inningsAtDismissal?.totalRuns || 0,
+          over: stat.ballsFaced ? (stat.ballsFaced / 6).toFixed(1) : '0.0'
+        };
+      })
+      .sort((a, b) => a.wicket - b.wicket);
+
+    // Only show partnerships where total runs by the pair is 30 or more
+    const filteredPartnerships = (match.partnerships || []).filter(p =>
+      (p.runs || 0) >= 30
+    );
+
+    res.json({
+      success: true,
+      data: {
+        playerStats: match.playerStats,
+        battingStats: battingStatsWithDismissal,
+        bowlingStats: match.playerStats.filter(s => s.teamId === bowlingTeamId && s.oversBowled > 0),
+        partnerships: filteredPartnerships,
+        fallOfWickets,
+        battingTeamId,
+        bowlingTeamId
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching match statistics',
+      error: error.message
+    });
+  }
+};
+
+// Get live matches
+exports.getLiveMatches = async (req, res) => {
+  try {
+    const liveMatches = await Match.findAll({
+      where: { status: 'live' },
+      include: [
+        { model: Team, as: 'team1', attributes: ['id', 'name', 'shortName', 'logo'] },
+        { model: Team, as: 'team2', attributes: ['id', 'name', 'shortName', 'logo'] },
+        { model: Innings, as: 'innings' }
+      ],
+      order: [['matchDate', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      count: liveMatches.length,
+      data: liveMatches
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching live matches',
+      error: error.message
+    });
+  }
+};
+
+// Get upcoming matches
+exports.getUpcomingMatches = async (req, res) => {
+  try {
+    const upcomingMatches = await Match.findAll({
+      where: { status: 'scheduled' },
+      include: [
+        { model: Team, as: 'team1', attributes: ['id', 'name', 'shortName', 'logo'] },
+        { model: Team, as: 'team2', attributes: ['id', 'name', 'shortName', 'logo'] }
+      ],
+      order: [['matchDate', 'ASC']],
+      limit: 10
+    });
+
+    res.json({
+      success: true,
+      count: upcomingMatches.length,
+      data: upcomingMatches
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching upcoming matches',
+      error: error.message
+    });
+  }
+};
+
+// Get match commentary
+exports.getMatchCommentary = async (req, res) => {
+  try {
+    const match = await Match.findByPk(req.params.id, {
+      include: [
+        {
+          model: Innings,
+          as: 'innings',
+          include: [
+            {
+              model: Ball,
+              as: 'balls',
+              include: [
+                { model: Player, as: 'batsman', attributes: ['id', 'name'] },
+                { model: Player, as: 'bowler', attributes: ['id', 'name'] }
+              ]
+            }
+          ]
+        }
+      ],
+      order: [
+        [{ model: Innings, as: 'innings' }, { model: Ball, as: 'balls' }, 'id', 'DESC']
+      ]
+    });
+
+    if (!match) {
+      return res.status(404).json({
+        success: false,
+        message: 'Match not found'
+      });
+    }
+
+    // Generate commentary from balls
+    const commentary = [];
+    if (match.innings && match.innings.length > 0) {
+      match.innings.forEach(innings => {
+        if (innings.balls && innings.balls.length > 0) {
+          innings.balls.forEach(ball => {
+            const over = ball.overNumber || Math.floor(ball.ballNumber / 6);
+            const ballInOver = ball.ballNumber || ((ball.ballNumber % 6) + 1);
+            
+            // Use custom commentary if available, otherwise generate default
+            let commentaryText = ball.commentary;
+            if (!commentaryText) {
+              // Auto-generate commentary
+              const runsText = ball.runs === 0 ? 'no run' : 
+                              ball.runs === 1 ? '1 run' :
+                              ball.runs === 4 ? 'FOUR!' :
+                              ball.runs === 6 ? 'SIX!' :
+                              `${ball.runs} runs`;
+              
+              const extrasText = ball.extras > 0 ? ` + ${ball.extras} extras` : '';
+              const wicketText = ball.isWicket ? ` - WICKET! ${ball.wicketType || 'OUT'}` : '';
+              
+              commentaryText = `${ball.bowler?.name} to ${ball.batsman?.name}, ${runsText}${extrasText}${wicketText}`;
+            }
+            
+            commentary.push({
+              id: ball.id,
+              over: `${over}.${ballInOver}`,
+              overNumber: over,
+              ballNumber: ballInOver,
+              text: commentaryText,
+              commentary: ball.commentary,
+              runs: ball.runs,
+              extras: ball.extras,
+              isWicket: ball.isWicket,
+              wicketType: ball.wicketType,
+              batsman: ball.batsman?.name,
+              bowler: ball.bowler?.name,
+              timestamp: ball.createdAt
+            });
+          });
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: commentary.reverse() // Most recent first
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching commentary',
+      error: error.message
+    });
+  }
+};
+

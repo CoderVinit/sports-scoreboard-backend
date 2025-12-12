@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
+const authRoutes = require('./auth.routes');
 const userRoutes = require('./user.routes');
 const teamRoutes = require('./team.routes');
 const matchRoutes = require('./match.routes');
@@ -8,6 +9,10 @@ const playerRoutes = require('./player.routes');
 const inningsRoutes = require('./innings.routes');
 const ballRoutes = require('./ball.routes');
 
+// Authentication routes
+router.use('/auth', authRoutes);
+
+// Resource routes
 router.use('/users', userRoutes);
 router.use('/teams', teamRoutes);
 router.use('/matches', matchRoutes);

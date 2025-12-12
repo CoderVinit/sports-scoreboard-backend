@@ -49,9 +49,14 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('✓ Database connection established successfully');
 
-    // Sync models (use { force: true } only in development to recreate tables)
-    // await sequelize.sync({ alter: false });
-    console.log('✓ Database models synchronized');
+    // Models are managed via migrations (`npm run db:migrate`).
+    // Do not use `sequelize.sync({ alter: true })` here, as it can generate
+    // repeated ALTER TABLE statements (e.g. re-adding UNIQUE) and hit
+    // MySQL's `ER_TOO_MANY_KEYS` limit. If you ever need automatic schema
+    // sync in development, use a plain `sequelize.sync()` in a guarded
+    // block instead.
+    // await sequelize.sync();
+    // console.log('✓ Database models synchronized');
 
     // Start server
     app.listen(PORT, () => {
