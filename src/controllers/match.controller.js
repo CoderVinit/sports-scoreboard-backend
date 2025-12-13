@@ -263,6 +263,41 @@ exports.getAllMatches = async (req, res) => {
   }
 };
 
+// Get completed matches
+exports.getCompletedMatches = async (req, res) => {
+  try {
+    const completedMatches = await Match.findAll({
+      where: { status: 'completed' },
+      include: [
+        { model: Team, as: 'team1', attributes: ['id', 'name', 'shortName', 'logo'] },
+        { model: Team, as: 'team2', attributes: ['id', 'name', 'shortName', 'logo'] },
+        {
+          model: Innings,
+          as: 'innings',
+          include: [
+            { model: Team, as: 'battingTeam', attributes: ['id', 'name', 'shortName'] },
+            { model: Team, as: 'bowlingTeam', attributes: ['id', 'name', 'shortName'] }
+          ]
+        }
+      ],
+      order: [['matchDate', 'DESC']],
+      limit: 10
+    });
+
+    res.json({
+      success: true,
+      count: completedMatches.length,
+      data: completedMatches
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching completed matches',
+      error: error.message
+    });
+  }
+};
+
 // Delete match
 exports.deleteMatch = async (req, res) => {
   try {

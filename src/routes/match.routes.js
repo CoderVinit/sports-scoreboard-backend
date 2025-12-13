@@ -6,6 +6,7 @@ const matchController = require('../controllers/match.controller');
 router.get('/', matchController.getAllMatches);
 router.get('/live', matchController.getLiveMatches);
 router.get('/upcoming', matchController.getUpcomingMatches);
+router.get('/completed', matchController.getCompletedMatches);
 router.get('/:id', matchController.getMatchDetails);
 router.get('/:id/scorecard', matchController.getLiveScorecard);
 router.get('/:id/statistics', matchController.getMatchStatistics);
