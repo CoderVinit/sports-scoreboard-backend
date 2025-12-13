@@ -7,11 +7,32 @@ require('dotenv').config();
 const sequelize = require('./config/database');
 const routes = require('./routes');
 
+// Determine allowed CORS origins from environment
+let allowedOrigins;
+const rawClientUrl = process.env.CLIENT_URL;
+
+if (rawClientUrl) {
+  try {
+    const parsed = JSON.parse(rawClientUrl);
+    if (Array.isArray(parsed)) {
+      allowedOrigins = parsed;
+    } else {
+      allowedOrigins = [parsed];
+    }
+  } catch (e) {
+    // If CLIENT_URL is a single string (not JSON), fall back to that
+    allowedOrigins = [rawClientUrl];
+  }
+} else {
+  // Local development defaults
+  allowedOrigins = ['http://localhost:5173', 'http://localhost:3000'];
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
@@ -31,7 +52,7 @@ io.on('connection', (socket) => {
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || '*',
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
