@@ -439,7 +439,14 @@ exports.getLiveMatches = async (req, res) => {
       include: [
         { model: Team, as: 'team1', attributes: ['id', 'name', 'shortName', 'logo'] },
         { model: Team, as: 'team2', attributes: ['id', 'name', 'shortName', 'logo'] },
-        { model: Innings, as: 'innings' }
+        {
+          model: Innings,
+          as: 'innings',
+          include: [
+            { model: Team, as: 'battingTeam', attributes: ['id', 'name', 'shortName'] },
+            { model: Team, as: 'bowlingTeam', attributes: ['id', 'name', 'shortName'] }
+          ]
+        }
       ],
       order: [['matchDate', 'DESC']]
     });
