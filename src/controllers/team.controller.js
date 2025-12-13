@@ -1,12 +1,29 @@
-const { Team } = require('../models');
+const { Team, Player } = require('../models');
 
 // Get all teams
 exports.getAllTeams = async (req, res) => {
   try {
-    const teams = await Team.findAll();
+    const teams = await Team.findAll({
+      include: [
+        {
+          model: Player,
+          as: 'players',
+          attributes: ['id']
+        }
+      ]
+    });
+
+    // Add player count to each team
+    const teamsWithCount = teams.map(team => {
+      const teamData = team.toJSON();
+      teamData.playerCount = teamData.players ? teamData.players.length : 0;
+      delete teamData.players; // Remove the players array, we only need the count
+      return teamData;
+    });
+
     res.json({
       success: true,
-      data: teams
+      data: teamsWithCount
     });
   } catch (error) {
     res.status(500).json({

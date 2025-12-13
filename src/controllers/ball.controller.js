@@ -3,6 +3,7 @@ const { Ball, Innings, Player, PlayerMatchStats, Partnership } = require('../mod
 // Record a ball
 exports.recordBall = async (req, res) => {
   try {
+    const io = req.app.get('io');
     const ball = await Ball.create(req.body);
     
     // Update innings statistics
@@ -221,6 +222,16 @@ exports.recordBall = async (req, res) => {
       }
 
       await partnership.save();
+    }
+    
+    // Emit socket event for real-time updates
+    if (io) {
+      io.emit('ballRecorded', {
+        matchId: ball.matchId,
+        inningsId: ball.inningsId,
+        ball: ball,
+        innings: innings
+      });
     }
     
     res.status(201).json({

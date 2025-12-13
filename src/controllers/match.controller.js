@@ -3,22 +3,37 @@ const { Match, Team, Player, Innings, Ball, PlayerMatchStats, Partnership } = re
 // Create a new match
 exports.createMatch = async (req, res) => {
   try {
-    const match = await Match.create(req.body);
+    // Check if both toss winner and toss decision are selected
+    const hasToss = req.body.tossWinnerId && req.body.tossDecision && req.body.battingFirstId;
     
-    // Automatically create first innings based on toss result
-    const firstInnings = await Innings.create({
-      matchId: match.id,
-      battingTeamId: match.battingFirstId,
-      bowlingTeamId: match.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
-      inningsNumber: 1,
-      status: 'in_progress'
-    });
+    // Determine initial status based on toss
+    let initialStatus = 'scheduled';
+    if (hasToss) {
+      initialStatus = 'live';
+    }
+    
+    // Create match with determined status
+    const matchData = {
+      ...req.body,
+      status: initialStatus
+    };
+    
+    const match = await Match.create(matchData);
+    
+    // If both toss winner and decision are selected, create first innings
+    if (hasToss) {
+      await Innings.create({
+        matchId: match.id,
+        battingTeamId: match.battingFirstId,
+        bowlingTeamId: match.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
+        inningsNumber: 1,
+        status: 'in_progress'
+      });
 
-    // Update match with current innings
-    await match.update({
-      currentInnings: 1,
-      status: 'live'
-    });
+      await match.update({
+        currentInnings: 1
+      });
+    }
 
     // Fetch match with innings
     const matchWithInnings = await Match.findByPk(match.id, {
@@ -100,7 +115,9 @@ exports.getMatchDetails = async (req, res) => {
 // Update match status
 exports.updateMatchStatus = async (req, res) => {
   try {
-    const match = await Match.findByPk(req.params.id);
+    const match = await Match.findByPk(req.params.id, {
+      include: [{ model: Innings, as: 'innings' }]
+    });
     
     if (!match) {
       return res.status(404).json({
@@ -109,11 +126,50 @@ exports.updateMatchStatus = async (req, res) => {
       });
     }
 
-    await match.update(req.body);
+    // Check if both toss winner and toss decision are being added
+    const hasToss = req.body.tossWinnerId && req.body.tossDecision && req.body.battingFirstId;
+    const previouslyHadToss = match.tossWinnerId && match.tossDecision && match.battingFirstId;
+    
+    // If both toss winner and decision are newly added and match was scheduled, create innings and make it live
+    if (hasToss && !previouslyHadToss && match.status === 'scheduled') {
+      // Create first innings if it doesn't exist
+      const existingInnings = await Innings.findOne({
+        where: { matchId: match.id, inningsNumber: 1 }
+      });
+
+      if (!existingInnings) {
+        await Innings.create({
+          matchId: match.id,
+          battingTeamId: req.body.battingFirstId,
+          bowlingTeamId: req.body.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
+          inningsNumber: 1,
+          status: 'in_progress'
+        });
+      }
+
+      // Update match to live status
+      await match.update({
+        ...req.body,
+        status: 'live',
+        currentInnings: 1
+      });
+    } else {
+      // Normal update
+      await match.update(req.body);
+    }
+
+    // Fetch updated match with innings
+    const updatedMatch = await Match.findByPk(match.id, {
+      include: [
+        { model: Team, as: 'team1' },
+        { model: Team, as: 'team2' },
+        { model: Innings, as: 'innings' }
+      ]
+    });
     
     res.json({
       success: true,
-      data: match
+      data: updatedMatch
     });
   } catch (error) {
     res.status(400).json({
@@ -365,8 +421,21 @@ exports.getMatchStatistics = async (req, res) => {
 // Get live matches
 exports.getLiveMatches = async (req, res) => {
   try {
+    const { Op } = require('sequelize');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1); // Start of tomorrow
+    
     const liveMatches = await Match.findAll({
-      where: { status: 'live' },
+      where: { 
+        status: 'live',
+        matchDate: {
+          [Op.gte]: today,
+          [Op.lt]: tomorrow
+        }
+      },
       include: [
         { model: Team, as: 'team1', attributes: ['id', 'name', 'shortName', 'logo'] },
         { model: Team, as: 'team2', attributes: ['id', 'name', 'shortName', 'logo'] },
@@ -392,8 +461,17 @@ exports.getLiveMatches = async (req, res) => {
 // Get upcoming matches
 exports.getUpcomingMatches = async (req, res) => {
   try {
+    const { Op } = require('sequelize');
+    const now = new Date();
+    now.setHours(0, 0, 0, 0); // Start of today
+    
     const upcomingMatches = await Match.findAll({
-      where: { status: 'scheduled' },
+      where: { 
+        status: 'scheduled',
+        matchDate: {
+          [Op.gte]: now  // Changed from tomorrow to today, so today's scheduled matches also show
+        }
+      },
       include: [
         { model: Team, as: 'team1', attributes: ['id', 'name', 'shortName', 'logo'] },
         { model: Team, as: 'team2', attributes: ['id', 'name', 'shortName', 'logo'] }
