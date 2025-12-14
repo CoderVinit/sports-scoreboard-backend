@@ -453,6 +453,98 @@ exports.getMatchStatistics = async (req, res) => {
   }
 };
 
+// Get innings-specific statistics
+exports.getInningsStatistics = async (req, res) => {
+  try {
+    const { id: matchId, inningsId } = req.params;
+    
+    const match = await Match.findByPk(matchId, {
+      include: [
+        { model: Team, as: 'team1', attributes: ['id', 'name'] },
+        { model: Team, as: 'team2', attributes: ['id', 'name'] },
+        {
+          model: Innings,
+          as: 'innings',
+          where: { id: inningsId }
+        },
+        {
+          model: PlayerMatchStats,
+          as: 'playerStats',
+          where: { inningsId },
+          include: [
+            { 
+              model: Player, 
+              as: 'player',
+              attributes: ['id', 'name', 'role', 'teamId']
+            },
+            {
+              model: Team,
+              as: 'team',
+              attributes: ['id', 'name']
+            }
+          ]
+        }
+      ]
+    });
+
+    if (!match) {
+      return res.status(404).json({
+        success: false,
+        message: 'Match or innings not found'
+      });
+    }
+
+    const innings = match.innings[0];
+    const battingTeamId = innings.battingTeamId;
+    const bowlingTeamId = innings.bowlingTeamId;
+
+    // Fetch dismissal details for batting stats
+    const battingStatsWithDismissal = await Promise.all(
+      match.playerStats
+        .filter(s => s.teamId === battingTeamId)
+        .map(async (stat) => {
+          if (stat.isOut) {
+            const dismissalBall = await Ball.findOne({
+              where: {
+                matchId,
+                inningsId,
+                isWicket: true,
+                batsmanId: stat.playerId
+              },
+              include: [
+                { model: Player, as: 'bowler', attributes: ['id', 'name'] },
+                { model: Player, as: 'fielder', attributes: ['id', 'name'] }
+              ]
+            });
+
+            return {
+              ...stat.toJSON(),
+              dismissalBowler: dismissalBall?.bowler,
+              dismissalFielder: dismissalBall?.fielder
+            };
+          }
+          return stat.toJSON();
+        })
+    );
+
+    res.json({
+      success: true,
+      data: {
+        battingStats: battingStatsWithDismissal,
+        bowlingStats: match.playerStats.filter(s => s.teamId === bowlingTeamId && s.oversBowled > 0),
+        battingTeamId,
+        bowlingTeamId
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching innings statistics',
+      error: error.message
+    });
+  }
+};
+
 // Get live matches
 exports.getLiveMatches = async (req, res) => {
   try {

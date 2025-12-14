@@ -10,6 +10,7 @@ router.get('/completed', matchController.getCompletedMatches);
 router.get('/:id', matchController.getMatchDetails);
 router.get('/:id/scorecard', matchController.getLiveScorecard);
 router.get('/:id/statistics', matchController.getMatchStatistics);
+router.get('/:id/innings/:inningsId/statistics', matchController.getInningsStatistics);
 router.get('/:id/commentary', matchController.getMatchCommentary);
 
 // Post routes
