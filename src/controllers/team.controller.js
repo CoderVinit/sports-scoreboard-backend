@@ -1,4 +1,19 @@
 const { Team, Player } = require('../models');
+const cloudinary = require('../config/cloudinary');
+
+// Helper to upload an image buffer to Cloudinary
+const uploadFromBuffer = (buffer) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'sports-scoreboard' },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+};
 
 // Get all teams
 exports.getAllTeams = async (req, res) => {
@@ -62,7 +77,32 @@ exports.getTeamById = async (req, res) => {
 // Create team
 exports.createTeam = async (req, res) => {
   try {
-    const team = await Team.create(req.body);
+    const { name, shortName, logo } = req.body;
+
+    let logoUrl = logo || null;
+
+    // If a logo file is uploaded, upload it to Cloudinary and use that URL
+    if (req.file) {
+      try {
+        const uploadResult = await uploadFromBuffer(req.file.buffer);
+        logoUrl = uploadResult.secure_url;
+      } catch (uploadError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Error uploading team logo',
+          error: uploadError.message,
+        });
+      }
+    }
+
+    const teamData = {
+      ...req.body,
+      name,
+      shortName,
+      logo: logoUrl,
+    };
+
+    const team = await Team.create(teamData);
     res.status(201).json({
       success: true,
       data: team
@@ -87,8 +127,31 @@ exports.updateTeam = async (req, res) => {
         message: 'Team not found'
       });
     }
-    
-    await team.update(req.body);
+
+    const { name, shortName, existingLogo, logo } = req.body;
+
+    // Start with provided logo value (for JSON-based updates), then existingLogo hint, then current team logo
+    let logoUrl = logo || existingLogo || team.logo || null;
+
+    // If a new file is uploaded, upload it to Cloudinary and use that URL
+    if (req.file) {
+      try {
+        const uploadResult = await uploadFromBuffer(req.file.buffer);
+        logoUrl = uploadResult.secure_url;
+      } catch (uploadError) {
+        return res.status(400).json({
+          success: false,
+          message: 'Error uploading team logo',
+          error: uploadError.message,
+        });
+      }
+    }
+
+    await team.update({
+      name: typeof name === 'string' && name.trim() ? name : team.name,
+      shortName: typeof shortName === 'string' && shortName.trim() ? shortName : team.shortName,
+      logo: logoUrl,
+    });
     res.json({
       success: true,
       data: team
