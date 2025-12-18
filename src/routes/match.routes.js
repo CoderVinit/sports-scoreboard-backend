@@ -15,6 +15,7 @@ router.get('/:id/commentary', matchController.getMatchCommentary);
 
 // Post routes
 router.post('/', matchController.createMatch);
+router.post('/:id/start', matchController.startMatch);
 
 // Put routes
 router.put('/:id', matchController.updateMatchStatus);

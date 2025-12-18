@@ -48,6 +48,12 @@ const Match = sequelize.define('Match', {
     allowNull: false,
     field: 'match_date'
   },
+  matchTime: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+    field: 'match_time',
+    comment: 'Match start time e.g., 7:30 PM IST'
+  },
   tossWinnerId: {
     type: DataTypes.INTEGER,
     allowNull: true,

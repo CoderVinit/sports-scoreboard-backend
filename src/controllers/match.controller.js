@@ -3,37 +3,14 @@ const { Match, Team, Player, Innings, Ball, PlayerMatchStats, Partnership } = re
 // Create a new match
 exports.createMatch = async (req, res) => {
   try {
-    // Check if both toss winner and toss decision are selected
-    const hasToss = req.body.tossWinnerId && req.body.tossDecision && req.body.battingFirstId;
-    
-    // Determine initial status based on toss
-    let initialStatus = 'scheduled';
-    if (hasToss) {
-      initialStatus = 'live';
-    }
-    
-    // Create match with determined status
+    // Create match - always start as scheduled, even with toss details
+    // Match goes live only when explicitly started
     const matchData = {
       ...req.body,
-      status: initialStatus
+      status: req.body.status || 'scheduled'
     };
     
     const match = await Match.create(matchData);
-    
-    // If both toss winner and decision are selected, create first innings
-    if (hasToss) {
-      await Innings.create({
-        matchId: match.id,
-        battingTeamId: match.battingFirstId,
-        bowlingTeamId: match.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
-        inningsNumber: 1,
-        status: 'in_progress'
-      });
-
-      await match.update({
-        currentInnings: 1
-      });
-    }
 
     // Fetch match with innings
     const matchWithInnings = await Match.findByPk(match.id, {
@@ -126,37 +103,9 @@ exports.updateMatchStatus = async (req, res) => {
       });
     }
 
-    // Check if both toss winner and toss decision are being added
-    const hasToss = req.body.tossWinnerId && req.body.tossDecision && req.body.battingFirstId;
-    const previouslyHadToss = match.tossWinnerId && match.tossDecision && match.battingFirstId;
-    
-    // If both toss winner and decision are newly added and match was scheduled, create innings and make it live
-    if (hasToss && !previouslyHadToss && match.status === 'scheduled') {
-      // Create first innings if it doesn't exist
-      const existingInnings = await Innings.findOne({
-        where: { matchId: match.id, inningsNumber: 1 }
-      });
-
-      if (!existingInnings) {
-        await Innings.create({
-          matchId: match.id,
-          battingTeamId: req.body.battingFirstId,
-          bowlingTeamId: req.body.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
-          inningsNumber: 1,
-          status: 'in_progress'
-        });
-      }
-
-      // Update match to live status
-      await match.update({
-        ...req.body,
-        status: 'live',
-        currentInnings: 1
-      });
-    } else {
-      // Normal update
-      await match.update(req.body);
-    }
+    // Normal update - don't auto-change status based on toss
+    // Status changes only when explicitly set in req.body
+    await match.update(req.body);
 
     // Fetch updated match with innings
     const updatedMatch = await Match.findByPk(match.id, {
@@ -175,6 +124,88 @@ exports.updateMatchStatus = async (req, res) => {
     res.status(400).json({
       success: false,
       message: 'Error updating match',
+      error: error.message
+    });
+  }
+};
+
+// Start match - creates first innings and sets match to live
+exports.startMatch = async (req, res) => {
+  try {
+    const match = await Match.findByPk(req.params.id, {
+      include: [{ model: Innings, as: 'innings' }]
+    });
+    
+    if (!match) {
+      return res.status(404).json({
+        success: false,
+        message: 'Match not found'
+      });
+    }
+
+    // Check if toss details are present
+    if (!match.tossWinnerId || !match.tossDecision || !match.battingFirstId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please complete toss details before starting the match'
+      });
+    }
+
+    // Check if match is already live or completed
+    if (match.status === 'live') {
+      return res.status(400).json({
+        success: false,
+        message: 'Match is already live'
+      });
+    }
+
+    if (match.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Match is already completed'
+      });
+    }
+
+    // Create first innings if it doesn't exist
+    const existingInnings = await Innings.findOne({
+      where: { matchId: match.id, inningsNumber: 1 }
+    });
+
+    if (!existingInnings) {
+      await Innings.create({
+        matchId: match.id,
+        battingTeamId: match.battingFirstId,
+        bowlingTeamId: match.battingFirstId === match.team1Id ? match.team2Id : match.team1Id,
+        inningsNumber: 1,
+        status: 'in_progress'
+      });
+    }
+
+    // Update match to live status
+    await match.update({
+      status: 'live',
+      currentInnings: 1
+    });
+
+    // Fetch updated match with all details
+    const updatedMatch = await Match.findByPk(match.id, {
+      include: [
+        { model: Team, as: 'team1' },
+        { model: Team, as: 'team2' },
+        { model: Team, as: 'tossWinner' },
+        { model: Innings, as: 'innings' }
+      ]
+    });
+
+    res.json({
+      success: true,
+      message: 'Match started successfully',
+      data: updatedMatch
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'Error starting match',
       error: error.message
     });
   }
@@ -432,6 +463,21 @@ exports.getMatchStatistics = async (req, res) => {
       (p.runs || 0) >= 30
     );
 
+    // Calculate total fours and sixes from all innings balls
+    let totalFours = 0;
+    let totalSixes = 0;
+    
+    try {
+      const allBalls = await Ball.findAll({
+        where: { matchId: req.params.id }
+      });
+      
+      totalFours = allBalls.filter(b => b.runs === 4 && !b.isWide && !b.isNoBall && !b.isBye && !b.isLegBye).length;
+      totalSixes = allBalls.filter(b => b.runs === 6 && !b.isWide && !b.isNoBall && !b.isBye && !b.isLegBye).length;
+    } catch (e) {
+      console.log('Error calculating fours/sixes:', e);
+    }
+
     res.json({
       success: true,
       data: {
@@ -441,7 +487,9 @@ exports.getMatchStatistics = async (req, res) => {
         partnerships: filteredPartnerships,
         fallOfWickets,
         battingTeamId,
-        bowlingTeamId
+        bowlingTeamId,
+        totalFours,
+        totalSixes
       }
     });
   } catch (error) {
@@ -527,11 +575,27 @@ exports.getInningsStatistics = async (req, res) => {
         })
     );
 
+    // Calculate Fall of Wickets for this specific innings
+    const fallOfWickets = match.playerStats
+      .filter(stat => stat.teamId === battingTeamId && stat.isOut)
+      .map((stat, index) => ({
+        wicket: index + 1,
+        runs: stat.runsScored,
+        player: stat.player,
+        playerId: stat.playerId,
+        playerName: stat.player?.name,
+        teamScore: innings.totalRuns || 0,
+        over: stat.ballsFaced ? (stat.ballsFaced / 6).toFixed(1) : '0.0'
+      }))
+      .sort((a, b) => a.wicket - b.wicket);
+
     res.json({
       success: true,
       data: {
+        playerStats: match.playerStats,
         battingStats: battingStatsWithDismissal,
         bowlingStats: match.playerStats.filter(s => s.teamId === bowlingTeamId && s.oversBowled > 0),
+        fallOfWickets,
         battingTeamId,
         bowlingTeamId
       }
@@ -666,8 +730,15 @@ exports.getMatchCommentary = async (req, res) => {
       match.innings.forEach(innings => {
         if (innings.balls && innings.balls.length > 0) {
           innings.balls.forEach(ball => {
-            const over = ball.overNumber || Math.floor(ball.ballNumber / 6);
-            const ballInOver = ball.ballNumber || ((ball.ballNumber % 6) + 1);
+            // Calculate over and ball in over correctly
+            // If overNumber is stored, use it; otherwise calculate from sequential ballNumber
+            // Ball numbers are 1-indexed, so ball 1-6 = over 0, ball 7-12 = over 1, etc.
+            const over = ball.overNumber !== undefined && ball.overNumber !== null 
+              ? ball.overNumber 
+              : Math.floor((ball.ballNumber - 1) / 6);
+            const ballInOver = ball.ballInOver !== undefined && ball.ballInOver !== null
+              ? ball.ballInOver
+              : ((ball.ballNumber - 1) % 6) + 1;
             
             // Use custom commentary if available, otherwise generate default
             let commentaryText = ball.commentary;
@@ -687,6 +758,8 @@ exports.getMatchCommentary = async (req, res) => {
             
             commentary.push({
               id: ball.id,
+              inningsId: innings.id,
+              inningsNumber: innings.inningsNumber,
               over: `${over}.${ballInOver}`,
               overNumber: over,
               ballNumber: ballInOver,
